@@ -34,46 +34,57 @@ games_start_size = games_df.size
 games_df = games_df[games_df["user_reviews"] >= 250]
 games_df = games_df[games_df["tags"].map(len) > 0]
 print(f"Games filtered out: {games_start_size - games_df.size}")
-print(games_df.size)
-print(games_df.head())
 
 print("Merging games and recommendations...")
 merged_df = recommendations_df.merge(
     games_df[["app_id", "tags"]], on="app_id", how="left"
 )
-print(merged_df.size)
-print(merged_df.head())
 
-# If the "Data_Temp/user_likes.csv" file already exists, we load it instead of creating it again
-if os.path.exists("Data_Temp/user_likes.csv"):
-    print("Loading user likes dataframe...")
-    user_likes = pd.read_csv("Data_Temp/user_likes.csv", index_col=0)
-    user_likes = reduce_memory(user_likes)
-    # user_likes["tags"] = user_likes["tags"].apply(ast.literal_eval)
-else:
+# If the "Data_Temp/user_likes.csv" file does not already exists, we create it
+if not os.path.exists("Data_Temp/user_likes.csv"):
     print("Creating user likes dataframe...")
     user_likes = (
         merged_df[merged_df["is_recommended"] == True].groupby("user_id")["tags"].sum()
     )
     user_likes.to_csv("Data_Temp/user_likes.csv")
 
+# Loading here to standardize format (bid of a weird pandas thing where loading from csv makes it different types than when we created it)
+print("Loading user likes dataframe...")
+user_likes = pd.read_csv("Data_Temp/user_likes.csv", index_col=0)
+user_likes = reduce_memory(user_likes)
+
 print("Filtering out 0 or empty tags...")
 startSize = len(user_likes)
-user_likes = user_likes[user_likes["tags"].map(len) > 0]
 user_likes = user_likes[user_likes["tags"] != "0"]
+user_likes = user_likes[user_likes["tags"].map(len) > 0]
 print(f"Filtered out {startSize - len(user_likes)} user likes")
 
 print("Reducing memory...")
 user_likes = reduce_memory(user_likes)
-+
+
 print("Calculating tag correlation coefficients...")
 tag_correlation = {}
 user_tags_count = {}
 if os.path.exists("Data_Temp/tag_correlation.json") and os.path.exists(
     "Data_Temp/user_tags_count.json"
 ):
-    tag_correlation = json.load(open("Data_Temp/tag_correlation.json", "r"))
-    user_tags_count = json.load(open("Data_Temp/user_tags_count.json", "r"))
+    print("Loading tag correlation coefficients pre data from tmp json...")
+    tag_correlation_tmp = json.load(open("Data_Temp/tag_correlation.json", "r"))
+    user_tags_count_tmp = json.load(open("Data_Temp/user_tags_count.json", "r"))
+
+    # Changing key string to tuple to be able to use it as a key in the dictionary
+    print("Fixing tag correlation coefficients pre data keys...")
+    for key, value in tag_correlation_tmp.items():
+        tag1 = key[1:-1].split(",")[0].strip()
+        tag2 = key[1:-1].split(",")[1].strip()
+        tag_correlation = {(tag1, tag2): value}
+
+    for key, value in user_tags_count_tmp.items():
+        user_id = int(key[1:-1].split(",")[0].strip())
+        tag = key[1:-1].split(",")[1].strip()
+        user_tags_count_tmp[(user_id, tag)] = value
+
+
 else:
     print("Calculating tag correlation coefficients pre 1...")
 
@@ -118,6 +129,9 @@ else:
     done = 0
     total = len(user_likes)
     for user, tags in user_likes.iterrows():
+        if len(tags) == 1 and type(tags[0]) == str:
+            tags = ast.literal_eval(tags[0])
+
         for tag in tags:
             pair = (user, tag)
             if not pair in user_tags_count:
@@ -131,9 +145,18 @@ else:
 
     print(f"Found {len(user_tags_count)} tag pairs")
 
+    # Changing key tuple to string to be able to save it to json file
+    tag_correlation_tmp = {}
+    for key, value in tag_correlation.items():
+        tag_correlation_tmp[str(key)] = value
+
+    user_tags_count_tmp = {}
+    for key, value in user_tags_count.items():
+        user_tags_count_tmp[str(key)] = value
+
     # Saving both tag_correlation and user_tags_count to json files
-    json.dump(tag_correlation, open("Data_Temp/tag_correlation.json", "w"))
-    json.dump(user_tags_count, open("Data_Temp/user_tags_count.json", "w"))
+    json.dump(tag_correlation_tmp, open("Data_Temp/tag_correlation.json", "w"))
+    json.dump(user_tags_count_tmp, open("Data_Temp/user_tags_count.json", "w"))
 
 print("Calculating final tag correlation coefficients matrix...")
 tag_correlation_coefficient = {}
@@ -141,10 +164,19 @@ done = 0
 total = len(tag_correlation)
 for pair, count in tag_correlation.items():
     tag1, tag2 = pair
-    tag1_count = sum(user_tags_count.get((user, tag1), 0) for user in user_likes.keys())
+    tag1_count = 0
+    tag2_count = 0
+    for user in user_likes.keys():
+        if not (user, tag1) in user_tags_count:
+            user_tags_count[(user, tag1)] = 0
+        if not (user, tag2) in user_tags_count:
+            user_tags_count[(user, tag2)] = 0
+
+        tag1_count += user_tags_count[(user, tag1)]
+        tag2_count += user_tags_count[(user, tag2)]
+
     tag2_count = sum(user_tags_count.get((user, tag2), 0) for user in user_likes.keys())
     if tag1_count > 0 and tag2_count > 0:
-        print("Here")
         tag_correlation_coefficient[pair] = count / math.sqrt(tag1_count * tag2_count)
 
     done += 1
