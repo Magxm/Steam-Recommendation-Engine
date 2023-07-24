@@ -65,74 +65,87 @@ print(f"Filtered out {startSize - len(user_likes)} user likes")
 
 print("Reducing memory...")
 user_likes = reduce_memory(user_likes)
-
-print("Calculating tag correlation coefficients pre 1...")
-tag_correlation = {}
-done = 0
-total = len(user_likes)
-
-for user, tags in user_likes.iterrows():
-    if len(tags) == 1 and type(tags[0]) == str:
-        tags = ast.literal_eval(tags[0])
-
-    # print(len(tags))
-    # print(type(tags[0]))
-    # print(tags[0])
-    # print("------------------")
-    tmpList = []
-    for tag in tags:
-        tmpList.append(tag)
-
-    # print(len(tmpList), tmpList)
-
-    for i in range(len(tmpList)):
-        for j in range(i + 1, len(tmpList)):
-            tag1 = tmpList[i]
-            tag2 = tmpList[j]
-            print(tag1, tag2)
-            pair = tuple(sorted([tag1, tag2]))
-            if not pair in tag_correlation:
-                tag_correlation[pair] = 1
-            else:
-                tag_correlation[pair] += 1
-
-    done += 1
-    if done % math.floor(total / 100) == 0 or done == 1 or done == total:
-        print(f"Progress: {done}/{total} ({len(tag_correlation)} pairs found)")
-
-print(f"Found {len(tag_correlation)} user-tag pairs")
-print("Calculating tag correlation coefficients pre 2...")
-user_tags_count = {}
-done = 0
-total = len(user_likes)
-for user, tags in user_likes.iterrows():
-    for tag in tags:
-        pair = (user, tag)
-        if not pair in user_tags_count:
-            user_tags_count[pair] = 1
-        else:
-            user_tags_count[pair] += 1
-
-    done += 1
-    if done % math.floor(total / 100) == 0 or done == 1 or done == total:
-        print(f"Progress: {done}/{total}")
-
-print(f"Found {len(user_tags_count)} tag pairs")
++
 print("Calculating tag correlation coefficients...")
+tag_correlation = {}
+user_tags_count = {}
+if os.path.exists("Data_Temp/tag_correlation.json") and os.path.exists(
+    "Data_Temp/user_tags_count.json"
+):
+    tag_correlation = json.load(open("Data_Temp/tag_correlation.json", "r"))
+    user_tags_count = json.load(open("Data_Temp/user_tags_count.json", "r"))
+else:
+    print("Calculating tag correlation coefficients pre 1...")
+
+    done = 0
+    total = len(user_likes)
+
+    for user, tags in user_likes.iterrows():
+        if len(tags) == 1 and type(tags[0]) == str:
+            tags = ast.literal_eval(tags[0])
+
+        # print(len(tags))
+        # print(type(tags[0]))
+        # print(tags[0])
+        # print("------------------")
+        tmpList = []
+        for tag in tags:
+            tmpList.append(tag)
+
+        # print(len(tmpList), tmpList)
+
+        for i in range(len(tmpList)):
+            for j in range(i + 1, len(tmpList)):
+                tag1 = tmpList[i]
+                tag2 = tmpList[j]
+                # print(tag1, tag2)
+                pair = tuple(sorted([tag1, tag2]))
+                if not pair in tag_correlation:
+                    tag_correlation[pair] = 1
+                else:
+                    tag_correlation[pair] += 1
+
+        done += 1
+        if done % math.floor(total / 100) == 0 or done == 1 or done == total:
+            print(f"Progress: {done}/{total} ({len(tag_correlation)} pairs found)")
+
+        if done > total / 100:
+            break
+
+    print(f"Found {len(tag_correlation)} user-tag pairs")
+    print("Calculating tag correlation coefficients pre 2...")
+
+    done = 0
+    total = len(user_likes)
+    for user, tags in user_likes.iterrows():
+        for tag in tags:
+            pair = (user, tag)
+            if not pair in user_tags_count:
+                user_tags_count[pair] = 1
+            else:
+                user_tags_count[pair] += 1
+
+        done += 1
+        if done % math.floor(total / 100) == 0 or done == 1 or done == total:
+            print(f"Progress: {done}/{total}")
+
+    print(f"Found {len(user_tags_count)} tag pairs")
+
+    # Saving both tag_correlation and user_tags_count to json files
+    json.dump(tag_correlation, open("Data_Temp/tag_correlation.json", "w"))
+    json.dump(user_tags_count, open("Data_Temp/user_tags_count.json", "w"))
+
+print("Calculating final tag correlation coefficients matrix...")
 tag_correlation_coefficient = {}
 done = 0
 total = len(tag_correlation)
 for pair, count in tag_correlation.items():
     tag1, tag2 = pair
-    if not (user, tag1) in user_tags_count:
-        user_tags_count[(user, tag1)] = 0
-
-    if not (user, tag2) in user_tags_count:
-        user_tags_count[(user, tag2)] = 0
-
-    tag1_count = sum(user_tags_count[(user, tag1)] for user in user_likes.keys())
-    tag2_count = sum(user_tags_count[(user, tag2)] for user in user_likes.keys())
-    tag_correlation_coefficient[pair] = count / math.sqrt(tag1_count * tag2_count)
+    tag1_count = sum(user_tags_count.get((user, tag1), 0) for user in user_likes.keys())
+    tag2_count = sum(user_tags_count.get((user, tag2), 0) for user in user_likes.keys())
+    if tag1_count > 0 and tag2_count > 0:
+        print("Here")
+        tag_correlation_coefficient[pair] = count / math.sqrt(tag1_count * tag2_count)
 
     done += 1
     if done % math.floor(total / 100) == 0 or done == 1 or done == total:
